@@ -30,11 +30,8 @@ The required preflight treats this mismatch as fatal. Do not launch or resume Co
 1,050,000 total - 128,000 maximum output = 922,000 safe input
 ```
 
-Use the same safe input policy for all five direct-provider catalogue models ([GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) has the same 1,050,000-token window and 128,000-token output limit):
+Use the same safe input policy for both direct-provider catalogue models ([GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) has the same 1,050,000-token window and 128,000-token output limit):
 
-- `gpt-5.6-sol`
-- `gpt-5.6-terra`
-- `gpt-5.6-luna`
 - `gpt-6-astra`
 - `gpt-6.1-sol`
 
@@ -173,7 +170,7 @@ Run these in the intended local user session:
 ```zsh
 ruby ~/.codex/skills/agent-scripts/codex-huge-context/scripts/preflight.rb
 codex login status
-jq -r '.models[] | select(.slug == "gpt-5.6-sol" or .slug == "gpt-5.6-terra" or .slug == "gpt-5.6-luna" or .slug == "gpt-6-astra" or .slug == "gpt-6.1-sol") | [.slug, .context_window, .max_context_window, .auto_compact_token_limit] | @tsv' ~/.codex/models-api-1m.json
+jq -r '.models[] | select(.slug == "gpt-6-astra" or .slug == "gpt-6.1-sol") | [.slug, .context_window, .max_context_window, .auto_compact_token_limit] | @tsv' ~/.codex/models-api-1m.json
 codex exec --skip-git-repo-check 'Reply with exactly: direct-api-safe-context-ok' </dev/null
 ```
 

@@ -9,7 +9,7 @@ require "shellwords"
 require "tmpdir"
 
 SCRIPT = File.expand_path("preflight.rb", __dir__)
-MODELS = %w[gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna gpt-6-astra gpt-6.1-sol].freeze
+MODELS = %w[gpt-6-astra gpt-6.1-sol].freeze
 CONTEXT_WINDOW = 922_000
 AUTO_COMPACT_TOKEN_LIMIT = 700_000
 OUTPUT_SENTINEL = "fixture-output-must-not-appear"
@@ -168,7 +168,7 @@ Dir.mktmpdir("codex-huge-context-test") do |root|
   )
   _stdout, stderr, process_status = run_preflight(config)
   assert(!process_status.success?, "unsafe catalogue threshold unexpectedly passed")
-  assert(stderr.include?("gpt-5.6-sol.auto_compact_token_limit must be 700000"), "catalogue failure is unclear")
+  assert(stderr.include?("gpt-6-astra.auto_compact_token_limit must be 700000"), "catalogue failure is unclear")
 end
 
 [100, nil, 95.0].each do |unsafe_percent|
@@ -181,7 +181,7 @@ end
     _stdout, stderr, process_status = run_preflight(config)
     assert(!process_status.success?, "unsafe effective-window percentage unexpectedly passed: #{unsafe_percent.inspect}")
     assert(
-      stderr.include?("gpt-5.6-sol.effective_context_window_percent must be omitted or integer 95"),
+      stderr.include?("gpt-6-astra.effective_context_window_percent must be omitted or integer 95"),
       "effective-window failure is unclear",
     )
   end
