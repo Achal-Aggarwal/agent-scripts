@@ -77,4 +77,3 @@ command codex exec --yolo -C <repo> \
 
 - Exit watchdog silently when the process ends normally (the run's own completion signal covers it); emit only on staleness.
 - Verified on codex-cli 0.144.4: `codex exec resume [SESSION_ID] [PROMPT]`, `--last`, cwd-filtering, `--all`.
-

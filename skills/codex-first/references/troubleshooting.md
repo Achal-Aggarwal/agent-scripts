@@ -41,4 +41,3 @@ config untouched, and is trivially disposable.
 
 If the environment's own Codex config is broken, say so rather than silently
 working around it every invocation — the next task will hit the same wall.
-
