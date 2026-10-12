@@ -1,6 +1,6 @@
 ---
 name: codex-first
-description: "Claude Code work routing: delegate implementation, fixing, exploratory subagents, rebasing, and PR merging/landing to GPT-6.1 Sol (Ultrafast) through Codex CLI while the parent specifies, decides, reviews, and verifies. Apply the native-Claude model gate. Codex-backed autoreview is always allowed and preferred."
+description: "Claude Code work routing: delegate hands-on work to Codex under the native-Claude model gate. Keep specification, judgment, and verification in Claude; prefer isolated Codex-backed autoreview."
 ---
 
 # Codex First
@@ -8,11 +8,8 @@ description: "Claude Code work routing: delegate implementation, fixing, explora
 ## Launch flags — read first, copy verbatim
 
 Default every Codex worker, **fresh or resumed**, to **GPT-6.1 Sol, high
-reasoning, Ultrafast service tier** (`service_tier="ultrafast"`; Peter made this
-the default on 2026-10-10). Pass all three settings unless the user requests an
-override. Missing tier flags are a common mistake: a 2026-09-27 campaign ran
-eight lanes for hours on the standard tier because a hand-written wrapper kept
-`-m`/effort and dropped the tier flags.
+reasoning, Ultrafast service tier** (`service_tier="ultrafast"`). Pass all three
+settings unless the user requests an override.
 
 ```bash
 # fresh
@@ -28,45 +25,8 @@ codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
 
 - Context: workers get the base 500k window. Add `-p sol61-1m` (or `-p astra-1m`) only when the
   order needs a whole-repo context; see `$codex-huge-context`.
-- Never hand-roll a subset. Copy the complete model, reasoning, and tier
-  settings into wrappers; change only the settings the user explicitly overrides.
-- Verify your workers' launch arguments against their requested settings.
-  The default tier is `ultrafast`; an explicitly requested `fast` run is valid.
-- Autoreview: `--engine codex --model gpt-6.1-sol --thinking medium
-  --codex-speed ultrafast` (`--codex-speed fast` when Fast is requested).
-
-### Optional Fast
-
-When the user asks for Fast (cheaper, still prioritized), replace
-`-c 'service_tier="ultrafast"'` with `-c 'service_tier="fast"'` (sent as API
-`priority`) in the fresh/resume recipes. Keep 6.1 Sol, high reasoning,
-`--enable fast_mode`, and the existing provider and execution policy. Do not
-promote either tier into the base `config.toml`; the launch flags own the tier.
-
-For an interactive session, use the same per-launch flags:
-
-```bash
-codex --no-daemon -m gpt-6.1-sol -c 'model_reasoning_effort="high"' \
-  --enable fast_mode -c 'service_tier="ultrafast"'
-```
-
-An optional `ultrafast.config.toml` profile in `CODEX_HOME` may instead contain
-the model, high reasoning, and Ultrafast tier; select it with
-`codex --no-daemon -p ultrafast`. It must preserve the configured provider and
-context settings. Prefer these launch overrides to `/ultrafast` or `/fast`: the
-slash commands save the selected tier into the base config.
-
-The active model catalog must list `gpt-6.1-sol` with the `ultrafast` tier, and
-the account must support it. The installed Codex's native catalog lists 6.1 Sol
-with `priority` only, and Codex can silently omit an unlisted tier, so the
-custom direct-API catalog (`$codex-huge-context`) carries the ultrafast entry.
-Verify the actual API response tier (`service_tier` in the response) before
-calling a run Ultrafast; verified 2026-10-10 on the direct API route. After an
-approved custom-catalog refresh, `--no-daemon` loads it in a fresh process. See
-the official
-[configuration reference](https://developers.openai.com/codex/config-reference/),
-[GPT-6.1 Sol model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol),
-and [Ultrafast API guide](https://developers.openai.com/api/docs/guides/ultrafast-mode).
+- Copy all model/reasoning/tier flags into wrappers; override only on user request. Verify launch arguments (`ultrafast` default; requested `fast` is valid).
+- For requested Fast reviews, use `--codex-speed fast`.
 
 ## Hard gate
 
@@ -156,43 +116,10 @@ Portfolio/multi-repo work: `$maintainer-orchestrator` instead.
 
 ## Invoke
 
-- Host preflight: run `timeout 8 git --version`; if it hangs on a Mac with Xcode-beta selected, export `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in the session and every work order.
-
-Default to `gpt-6.1-sol`, high reasoning, and Ultrafast service unless the user requests an override. Pass all three explicitly on fresh and resumed workers. Keep the configured provider, worker execution policy, and specialized review isolation with their owning workflows.
-
-If the saved configuration selects the `openai_api_direct` route, run `ruby ~/.codex/skills/agent-scripts/codex-huge-context/scripts/preflight.rb` before the first fresh or resumed launch in the batch. Fail closed if it cannot deliver the Keychain credential; never work around it by overriding the provider or using ordinary Codex authentication.
-
-Prompt via temp file, never inline quoting:
-
-```bash
-P=$(mktemp); cat >"$P" <<'EOF'
-<goal, repo + key paths, constraints ("don't touch X"), non-goals, proof expected, output shape>
-EOF
-command codex exec --yolo -C <repo> \
-  -m gpt-6.1-sol -c 'model_reasoning_effort="high"' \
-  --enable fast_mode -c 'service_tier="ultrafast"' \
-  -o /tmp/codex-last.md - <"$P" 2>/dev/null
-```
-
-- These overrides select the model and service tier, not the provider. Resumed sessions retain their recorded provider; use a fresh worker if it is incompatible with 6.1 Sol. Do not silently fall back to another model.
-- `--yolo` is the house default; Codex may run commands/tests freely. Keep prompts scoped to the target repo.
-- If `--yolo` is unavailable—either the CLI rejects the flag or the selected model/backend rejects unrestricted execution—replace it with `--approve-for-me` and retry once. Never pass both. Preserve every other argument and constraint.
-- `command codex` bypasses any interactive shell alias. If codex isn't on PATH, it depends on how it was installed:
-  - node/standalone install: `fnm exec --using default -- codex`
-  - ChatGPT desktop app: the CLI ships bundled at `/Applications/ChatGPT.app/Contents/Resources/codex`. Expose **that** binary with an **exec-wrapper, not a symlink**. Ensure `~/.local/bin` stays on PATH (for zsh, persist the export in `~/.zshrc`), then:
-    ```sh
-    mkdir -p "$HOME/.local/bin"
-    export PATH="$HOME/.local/bin:$PATH"
-    if [ -e "$HOME/.local/bin/codex" ] || [ -L "$HOME/.local/bin/codex" ]; then
-      printf '%s\n' 'codex launcher already exists; leaving it unchanged' >&2
-    else
-      printf '#!/bin/sh\nexec "/Applications/ChatGPT.app/Contents/Resources/codex" "$@"\n' > "$HOME/.local/bin/codex" && chmod +x "$HOME/.local/bin/codex"
-    fi
-    ```
-    Or install the self-contained CLI via `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, which needs no wrapper.
-- stderr suppressed (thinking noise bloats context); drop `2>/dev/null` only to debug a failing run
-- read `-o` file for the result; don't parse the JSONL stream
-- long runs: Bash run_in_background, read `-o` file on exit; don't kill quiet runs <30 min
+- Run `timeout 8 git --version`; for an Xcode-beta hang, set `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in the session and every order.
+- For `openai_api_direct`, run `ruby ~/.codex/skills/agent-scripts/codex-huge-context/scripts/preflight.rb` before the batch's first fresh/resumed launch. If Keychain delivery fails, stop; never override the provider or use ordinary Codex auth.
+- Keep the configured provider; resume inherits it. If incompatible with 6.1 Sol, start fresh; never silently change models.
+- Use repo-scoped `--yolo`, temp-file prompts (never inline quoting), and `-o` results (not JSONL).
 - **Harness visibility (Claude Code): every codex run gets its own harness-tracked
   background command (`run_in_background: true`) — one sidebar chip per worker,
   completion notification included. Chain setup steps (installs, worktree prep)
@@ -201,122 +128,9 @@ command codex exec --yolo -C <repo> \
   orphans supervised only by PID files.**
 - parallel independent tasks OK: separate repos/dirs, separate `-o` files, one tracked background command per worker
 - outside a git repo add `--skip-git-repo-check`
-
-## When the worker dies instantly
-
-A run that exits in seconds having produced nothing is almost never the task —
-it is the model route. Read the log tail before relaunching; the error names the
-cause, and relaunching unchanged just repeats it:
-
-- `401 Invalid API key` — the configured bearer is not valid at that endpoint.
-- `502 / All target providers failed` with a `target_providers` list — the
-  request reached a router but the **model id did not match its catalogue**, so
-  it fell through to the wrong upstream. Routers commonly expose aliased model
-  ids that differ from the underlying model's real name; pass the id the router
-  publishes, not the one you think you are using.
-- `stream disconnected` / `Reconnecting… 5/5` against a loopback URL — nothing
-  is listening there.
-- `requires a sandbox with reviewed escalations` — `--yolo` is unsupported for
-  that route. Retry once with `--approve-for-me`, which selects workspace-write,
-  on-request approvals, and automatic review.
-
-Diagnose the route directly rather than by retrying the agent. One request
-settles it, and it is far cheaper than another failed run:
-
-```bash
-curl -s -o /dev/null -w '%{http_code}\n' -m 8 <base_url>/models
-```
-
-A local config pointing at a loopback port proves nothing about that port being
-served: config files outlive the services they were written for, and a
-machine-managed provider block can reference an instance that no longer runs.
-Check what is actually listening before trusting it.
-
-**Never pass a credential through `-c key=value`** — it lands in argv, process
-listings, and shell history. When a run needs different provider settings,
-write a private overlay instead and point `CODEX_HOME` at it: a mode-0700
-directory holding a mode-0600 `config.toml` (copy `auth.json` across if the
-provider needs it). That keeps the secret in a file, leaves the user's global
-config untouched, and is trivially disposable.
-
-If the environment's own Codex config is broken, say so rather than silently
-working around it every invocation — the next task will hit the same wall.
-
-For follow-up fixes, resume from the repo directory with the same model, reasoning, and Fast-service overrides:
-
-```bash
-(cd <repo> && command codex exec resume <session-id> \
-  --dangerously-bypass-approvals-and-sandbox \
-  -m gpt-6.1-sol -c 'model_reasoning_effort="high"' \
-  --enable fast_mode -c 'service_tier="ultrafast"' \
-  -o /tmp/codex-last.md - <"$P2" 2>/dev/null)
-```
-
-### How resume works (verified on codex-cli 0.153.4)
-
-`codex exec resume` is a different subcommand with a different flag set than
-`codex exec`; the fresh-launch flags do not all carry over.
-
-- **No `-C`.** `resume` has no directory flag; the working directory *is* the
-  repo selector. Always wrap it in `(cd <repo> && …)`. Passing `-C` fails with
-  `error: unexpected argument '-C' found` — and because the launcher line usually
-  ends in `echo "exit=$?"` or a log redirect, the harness chip can still report
-  exit 0. After every resume, check the log tail for `Usage: codex exec resume`
-  before trusting the completion notification; if it is there, nothing ran.
-- **No `--yolo`.** Use `--dangerously-bypass-approvals-and-sandbox` (accepted on
-  resume). `--skip-git-repo-check`, `-m`, `-c`, `--enable`, `-o`, `--json`,
-  `--output-schema`, `--ephemeral` are accepted; `--full-auto` and `-C` are not.
-- **Session selection.** Positional `[SESSION_ID]` takes a UUID (from the
-  `session id:` line in the fresh run's log) or a thread name. `--last` picks the
-  newest session recorded *for this cwd* (cwd-filtered; `--all` disables the
-  filter). With parallel workers on the machine, always pass the explicit UUID.
-- **Prompt.** Positional `[PROMPT]`, or `-` to read it from stdin; keep using
-  the temp-file pattern (`- <"$P2"`). The resumed worker keeps its full prior
-  context, so the follow-up prompt should state only the delta: the decision,
-  the amended constraint, what still stands, and the required report.
-- **Overrides are per launch.** Model, reasoning effort, service tier, and
-  `-o` are not remembered; re-pass all of them. The recorded provider and
-  sandbox policy are inherited from the original session.
-- **Resume can be refused for a long thread.** `Error: thread/resume: thread/resume
-  failed: list_turns is not supported yet (code -32601)` means the backend cannot
-  rehydrate that session (seen after ~400k tokens of tool output). The command
-  exits non-zero after printing the *previous* run's final message, so it looks
-  like a no-op. Do not retry; relaunch as a fresh `codex exec` with a
-  self-contained order (state the branch/PR/worktree explicitly, since the new
-  session has no memory of them).
-- **Escape-hatch stops resume cleanly.** A worker that stopped under a spec's
-  escape hatch is not saturated; resuming it with the coordinator's decision is
-  the intended flow and cheaper than a fresh order. Only start a fresh session
-  for a genuinely new work order.
-
-## Liveness watchdog (long monitored runs)
-
-For runs you must not babysit, trade the stderr suppression for a log and watch its mtime; read only the `-o` file into context, never the log body.
-
-```bash
-command codex exec --yolo -C <repo> \
-  -m gpt-6.1-sol -c 'model_reasoning_effort="high"' \
-  --enable fast_mode -c 'service_tier="ultrafast"' \
-  -o "$OUT" - <"$P" > "$LOG" 2>&1
-# Claude Code: run the line above as its own Bash run_in_background call
-# (tracked chip + completion notification). Append `&` + a PID file ONLY in
-# environments without tracked backgrounding.
-```
-
-- Capture the session id immediately: `grep -m1 "session id:" "$LOG"`. `resume --last` is cwd-filtered but races with any parallel Codex on the machine — with the id saved, recovery is deterministic.
-- Watchdog loop (Claude Code: `Monitor` tool; else a bg shell): every 60s, if the codex process is alive but `$LOG` mtime is older than ~300s, treat it as hung. Because stderr (thinking stream) is in the log, mtime stays fresh during long reasoning — 5 min of true silence is a real hang, not thinking.
-- Recovery: kill the pid, then resume the SAME session with an explicit id so no context is lost:
-
-```bash
-(cd <repo> && command codex exec resume <session-id> \
-  --dangerously-bypass-approvals-and-sandbox \
-  -m gpt-6.1-sol -c 'model_reasoning_effort="high"' \
-  --enable fast_mode -c 'service_tier="ultrafast"' \
-  -o "$OUT" - <<< "You were interrupted. Continue exactly where you left off; finish the task and produce the required final report.")
-```
-
-- Exit watchdog silently when the process ends normally (the run's own completion signal covers it); emit only on staleness.
-- Verified on codex-cli 0.144.4: `codex exec resume [SESSION_ID] [PROMPT]`, `--last`, cwd-filtering, `--all`.
+- For Fast/catalog checks, CLI setup, or execution details: read [launch details](references/launch-details.md).
+- On failure or provider changes: [troubleshooting](references/troubleshooting.md); never put credentials in `-c key=value`.
+- Before resuming/monitoring: [resume and watchdog](references/resume-and-watchdog.md).
 
 ## Prompt contract
 
@@ -335,44 +149,6 @@ Codex starts with zero session context. Every prompt: goal, exact repo/paths, co
   next spec.
 - End every series work order with an explicit stop: "Do exactly this; do not start PR N+1."
 
-## Coordinator verification (beyond the diff)
+- Work-order proof: PR CI is the default broad proof; open a ready PR once the build and focused local tests/typecheck/lint/format pass, without waiting for pre-PR broad suites; use Crabbox/Testbox only for gaps CI/local cannot cover and only if granted immediately (queued → local; no Testbox → AWS → Hetzner ladder); fix real failures, read CI's pre-existing/new classification, and never rerun/re-push just for green. Keep untrusted code secretless, live credentials authorized, and Gateway/state isolated.
 
-Worker reports are accurate but incomplete — pathologies live in the code, not the summary.
-After every landed PR, verify against merged origin/main, not the report:
-
-- read the actual merged surface (types, interfaces, naming) — the minification incident was
-  invisible in a green report and obvious in 10 lines of code
-- squash history: any commit message you didn't commission ("add startup margin") is a lead
-- diff-stat the guard/budget/baseline files the spec forbade touching; if a limit number in the
-  report changed, find out who moved it (may be main advancing, may be the worker)
-- test-helper edits are a red-flag class of their own (defineProperty shims re-exposing moved
-  fields keep suites green while hiding the migration)
-
-## Parallel workers, one repo
-
-Disjoint-file tasks parallelize cleanly: one worktree + unique branch per worker (fresh from
-origin/main; distinctive branch names — generic ones attach to old PRs), one tracked background
-command each, shared spec body + per-target header. Landing serializes on the repo's land
-workflow lock: tell each worker a held lock means a sibling owns it — back off 5-10 min, retry
-from the failed step, NEVER lock-recover a lock it didn't create, and don't chase main with
-fresh gates as siblings land under it. Sequential series instead reuse ONE worktree, rebranching
-from origin/main per PR.
-
-## Verify (Claude, always)
-
-- `git status -sb` + read the full diff; judge like a contributor PR
-- run focused tests yourself or demand proof output; Codex claims are advisory
-- iterate via resume; after 2 failed rounds, take over and do it directly
-- normal closeout still applies: `$autoreview` before ship
-- **check for a live worker in the repo before you edit or commit**:
-  `pgrep -fl "codex exec"`. A run whose deliverable is already in the tree can
-  keep looping for hours and overwrite your fixes mid-review. Stop it once you
-  have verified its output rather than racing it.
-- a genuinely independent review pass earns its keep: reviewing the working tree
-  after a Codex build found a currency value being fed to a percentage helper
-  that clamped at 100, which typechecked, passed every test, and was invisible in
-  the worker's own report.
-
-## Economics
-
-Win = generation + exploration tokens moved to Codex; Claude spends only on spec + diff review. Don't ping-pong trivia through delegation; don't re-read what Codex already summarized.
+Before reviewing/landing or coordinating workers, read [coordination](references/coordination.md); check for live workers before editing/committing.
