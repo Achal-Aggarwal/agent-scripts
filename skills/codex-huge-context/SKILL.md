@@ -57,13 +57,15 @@ Leave `effective_context_window_percent` absent to use Codex's 95% default, or s
 
 Start from the complete native catalogue for the installed Codex release, including its reviewer models: a custom catalogue replaces the built-in catalogue rather than overlaying selected entries. Use every model's genuine metadata and a client satisfying its minimum version. Preserve instructions, tool capabilities, and every safety field, including required review behavior; override only the context and compaction fields above. Never invent Astra metadata or relabel a Sol entry as Astra. The API context contract above supports the direct-provider override; it does not expand ChatGPT entitlement or relax client safety requirements. The preflight validates context and credential delivery, not the provenance of the remaining catalogue metadata.
 
-The root section of `~/.codex/config.toml` needs:
+The catalogue describes each model's safe maximum. Sessions default to a 500,000-token window
+(Peter, 2026-10-12): step latency roughly doubles from 100k to 300k of context, so lanes run
+smaller unless they need more. The root section of `~/.codex/config.toml` needs:
 
 ```toml
-model = "gpt-6-astra"
+model = "gpt-6.1-sol"
 model_provider = "openai_api_direct"
-model_context_window = 922000
-model_auto_compact_token_limit = 700000
+model_context_window = 500000
+model_auto_compact_token_limit = 400000
 model_auto_compact_token_limit_scope = "total"
 model_catalog_json = "/Users/steipete/.codex/models-api-1m.json"
 
@@ -79,7 +81,23 @@ timeout_ms = 5000
 refresh_interval_ms = 300000
 ```
 
-Replace legacy values such as `model_context_window = 1050000` or `model_auto_compact_token_limit = 233000`; do not leave duplicate root keys. Keep the scope at `total`, because the safety budget applies to the complete active request, not only content added after a compaction prefix.
+Replace legacy values such as `model_context_window = 1050000` or `922000` at the root; do not leave duplicate root keys. Keep the scope at `total`, because the safety budget applies to the complete active request, not only content added after a compaction prefix.
+
+### Profiles
+
+Codex 0.162 profiles are files: `codex -p <name>` layers `~/.codex/<name>.config.toml` over the
+base config (names allow only letters, digits, `_` and `-`). Every host carries four:
+
+| Profile | `model` | Context |
+|---|---|---|
+| `astra` | `gpt-6-astra` | base 500k |
+| `sol61` | `gpt-6.1-sol` | base 500k |
+| `astra-1m` | `gpt-6-astra` | `922000` window, `700000` compaction, scope `total` |
+| `sol61-1m` | `gpt-6.1-sol` | `922000` window, `700000` compaction, scope `total` |
+
+Each profile also sets `model_provider = "openai_api_direct"`. Any profile that sets context keys
+must pin that provider and use 500000/400000 or 922000/700000; the preflight enforces this for
+every `*.config.toml`. Use a `-1m` profile only for work that needs a whole-repo context.
 
 Before modifying a host, back up both config files to date-stamped sibling files. Do not replace unrelated project, plugin, MCP, notification, approval, model-selection, or reasoning settings.
 
@@ -173,6 +191,10 @@ codex login status
 jq -r '.models[] | select(.slug == "gpt-6-astra" or .slug == "gpt-6.1-sol") | [.slug, .context_window, .max_context_window, .auto_compact_token_limit] | @tsv' ~/.codex/models-api-1m.json
 codex exec --skip-git-repo-check 'Reply with exactly: direct-api-safe-context-ok' </dev/null
 ```
+
+Then probe each profile (`codex exec --skip-git-repo-check -p <name> ...`) and read
+`model_context_window` from the fresh rollout's `task_started` event: 475000 for the base,
+`astra` and `sol61`; 875900 for `astra-1m` and `sol61-1m`.
 
 Expect a successful preflight, `922000`, `922000`, and `700000` for every catalogue model, ChatGPT login for connector-capable hosts, and the exact probe response. A successful direct API probe does not prove connector OAuth; confirm `codex login status` separately.
 

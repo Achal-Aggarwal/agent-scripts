@@ -12,6 +12,20 @@ SCRIPT = File.expand_path("preflight.rb", __dir__)
 MODELS = %w[gpt-6-astra gpt-6.1-sol].freeze
 CONTEXT_WINDOW = 922_000
 AUTO_COMPACT_TOKEN_LIMIT = 700_000
+DEFAULT_CONTEXT_WINDOW = 500_000
+DEFAULT_AUTO_COMPACT_TOKEN_LIMIT = 400_000
+LARGE_PROFILE = <<~TOML
+  model_provider = "openai_api_direct"
+  model_context_window = 922000
+  model_auto_compact_token_limit = 700000
+  model_auto_compact_token_limit_scope = "total"
+TOML
+PROFILES = {
+  "astra" => "model = \"gpt-6-astra\"\nmodel_provider = \"openai_api_direct\"\n",
+  "sol61" => "model = \"gpt-6.1-sol\"\nmodel_provider = \"openai_api_direct\"\n",
+  "astra-1m" => "model = \"gpt-6-astra\"\n#{LARGE_PROFILE}",
+  "sol61-1m" => "model = \"gpt-6.1-sol\"\n#{LARGE_PROFILE}",
+}.freeze
 OUTPUT_SENTINEL = "fixture-output-must-not-appear"
 
 def assert(condition, message)
@@ -23,7 +37,8 @@ def write_fixture(
   helper_body:,
   config_overrides: {},
   catalog_overrides: {},
-  catalog_models: MODELS
+  catalog_models: MODELS,
+  profiles: PROFILES
 )
   helper = File.join(root, "fetch-key")
   catalog = File.join(root, "models.json")
@@ -48,8 +63,8 @@ def write_fixture(
   root_values = {
     "model" => '"gpt-6-astra"',
     "model_provider" => '"openai_api_direct"',
-    "model_context_window" => CONTEXT_WINDOW,
-    "model_auto_compact_token_limit" => AUTO_COMPACT_TOKEN_LIMIT,
+    "model_context_window" => DEFAULT_CONTEXT_WINDOW,
+    "model_auto_compact_token_limit" => DEFAULT_AUTO_COMPACT_TOKEN_LIMIT,
     "model_auto_compact_token_limit_scope" => '"total"',
     "model_catalog_json" => catalog.inspect,
   }.merge(config_overrides)
@@ -73,6 +88,7 @@ def write_fixture(
     TOML
   )
 
+  profiles.each { |name, body| File.write(File.join(root, "#{name}.config.toml"), body) }
   config
 end
 
@@ -135,7 +151,7 @@ Dir.mktmpdir("codex-huge-context-test") do |root|
   )
   _stdout, stderr, process_status = run_preflight(config)
   assert(!process_status.success?, "unsafe raw context window unexpectedly passed")
-  assert(stderr.include?("model_context_window must be 922000"), "context-window failure is unclear")
+  assert(stderr.include?("model_context_window must be 500000"), "context-window failure is unclear")
 end
 
 Dir.mktmpdir("codex-huge-context-test") do |root|
@@ -146,7 +162,7 @@ Dir.mktmpdir("codex-huge-context-test") do |root|
   )
   _stdout, stderr, process_status = run_preflight(config)
   assert(!process_status.success?, "unsafe compaction threshold unexpectedly passed")
-  assert(stderr.include?("model_auto_compact_token_limit must be 700000"), "compaction failure is unclear")
+  assert(stderr.include?("model_auto_compact_token_limit must be 400000"), "compaction failure is unclear")
 end
 
 Dir.mktmpdir("codex-huge-context-test") do |root|
@@ -198,6 +214,58 @@ MODELS.each do |missing_model|
     assert(!process_status.success?, "catalogue missing #{missing_model} unexpectedly passed")
     assert(stderr.include?("model catalogue is missing #{missing_model}"), "catalogue failure is unclear")
   end
+end
+
+PROFILE_FAILURES = {
+  "missing sol61-1m" => [PROFILES.reject { |name, _| name == "sol61-1m" }, "profile missing"],
+  "1m profile on another provider" => [
+    PROFILES.merge("astra-1m" => PROFILES["astra-1m"].sub("openai_api_direct", "openai")),
+    "astra-1m profile model_provider must be \"openai_api_direct\"",
+  ],
+  "mixed context pair" => [
+    PROFILES.merge("work" => "model_provider = \"openai_api_direct\"\nmodel_context_window = 922000\n" \
+                             "model_auto_compact_token_limit = 400000\n"),
+    "work profile must set context/compaction",
+  ],
+  "wrong profile model" => [PROFILES.merge("sol61" => "model = \"gpt-6-astra\"\n"), "sol61 profile model"],
+  "extra profile on the ChatGPT route" => [
+    PROFILES.merge("chat" => "model = \"gpt-6.1-sol\"\nmodel_provider = \"openai\"\n"),
+    "chat profile selects the ChatGPT-backed",
+  ],
+  "contract profile on another provider" => [
+    PROFILES.merge("astra" => "model = \"gpt-6-astra\"\nmodel_provider = \"other-route\"\n"),
+    "astra profile model_provider must be \"openai_api_direct\"",
+  ],
+}.freeze
+
+PROFILE_FAILURES.each do |label, (profiles, message)|
+  Dir.mktmpdir("codex-huge-context-test") do |root|
+    config = write_fixture(root, helper_body: "printf '%s\n' '#{OUTPUT_SENTINEL}'", profiles: profiles)
+    _stdout, stderr, process_status = run_preflight(config)
+    assert(!process_status.success?, "#{label} unexpectedly passed")
+    assert(stderr.include?(message), "#{label} failure is unclear: #{stderr}")
+  end
+end
+
+Dir.mktmpdir("codex-huge-context-test") do |root|
+  config = write_fixture(
+    root,
+    helper_body: "printf '%s\n' '#{OUTPUT_SENTINEL}'",
+    profiles: PROFILES.merge("ultrafast" => "model = \"gpt-6-astra\"\nservice_tier = \"ultrafast\"\n"),
+  )
+  _stdout, stderr, process_status = run_preflight(config)
+  assert(process_status.success?, "profile without context keys failed: #{stderr}")
+end
+
+Dir.mktmpdir("codex-huge-context-test") do |root|
+  config = write_fixture(
+    root,
+    helper_body: "printf '%s\n' '#{OUTPUT_SENTINEL}'",
+    profiles: PROFILES.merge("router" => "model = \"other\"\nmodel_provider = \"claude-code-router\"\n"),
+  )
+  _stdout, stderr, process_status = run_preflight(config)
+  assert(process_status.success?, "foreign-provider profile should warn, not fail: #{stderr}")
+  assert(stderr.include?("router profile switches to"), "inherited-limit warning missing")
 end
 
 Dir.mktmpdir("codex-huge-context-test") do |root|

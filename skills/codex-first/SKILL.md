@@ -26,11 +26,13 @@ codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
   --enable fast_mode -c 'service_tier="ultrafast"' -o "$OUT" -
 ```
 
+- Context: workers get the base 500k window. Add `-p sol61-1m` (or `-p astra-1m`) only when the
+  order needs a whole-repo context; see `$codex-huge-context`.
 - Never hand-roll a subset. Copy the complete model, reasoning, and tier
   settings into wrappers; change only the settings the user explicitly overrides.
 - Verify your workers' launch arguments against their requested settings.
   The default tier is `ultrafast`; an explicitly requested `fast` run is valid.
-- Autoreview: `--engine codex --model gpt-6.1-sol --thinking high
+- Autoreview: `--engine codex --model gpt-6.1-sol --thinking medium
   --codex-speed ultrafast` (`--codex-speed fast` when Fast is requested).
 
 ### Optional Fast
@@ -74,7 +76,7 @@ not hands-on self-delegation. Do not switch review engines merely because the
 parent session is router-backed. This exception takes precedence over the gate
 below.
 
-Use the autoreview helper with `--engine codex --model gpt-6.1-sol --thinking high --codex-speed ultrafast` unless the user requests an override. Preserve the helper's reviewer isolation.
+Use the autoreview helper with `--engine codex --model gpt-6.1-sol --thinking medium --codex-speed ultrafast` unless the user requests an override. Preserve the helper's reviewer isolation.
 
 For direct hands-on delegation, use this skill only
 when the active agent is Claude Code **and** the session is running on a native
@@ -158,7 +160,7 @@ Portfolio/multi-repo work: `$maintainer-orchestrator` instead.
 
 Default to `gpt-6.1-sol`, high reasoning, and Ultrafast service unless the user requests an override. Pass all three explicitly on fresh and resumed workers. Keep the configured provider, worker execution policy, and specialized review isolation with their owning workflows.
 
-If the saved configuration selects the `openai_api_direct` million-token route, run `ruby ~/.codex/skills/agent-scripts/codex-huge-context/scripts/preflight.rb` before the first fresh or resumed launch in the batch. Fail closed if it cannot deliver the Keychain credential; never work around it by overriding the provider or using ordinary Codex authentication.
+If the saved configuration selects the `openai_api_direct` route, run `ruby ~/.codex/skills/agent-scripts/codex-huge-context/scripts/preflight.rb` before the first fresh or resumed launch in the batch. Fail closed if it cannot deliver the Keychain credential; never work around it by overriding the provider or using ordinary Codex authentication.
 
 Prompt via temp file, never inline quoting:
 

@@ -9,9 +9,24 @@ require "shellwords"
 require "tmpdir"
 
 MODELS = %w[gpt-6-astra gpt-6.1-sol].freeze
+# The catalogue carries each model's safe input allowance; the base config and
+# profiles select how much of it a session uses.
 CONTEXT_WINDOW = 922_000
 AUTO_COMPACT_TOKEN_LIMIT = 700_000
+DEFAULT_CONTEXT_WINDOW = 500_000
+DEFAULT_AUTO_COMPACT_TOKEN_LIMIT = 400_000
 AUTO_COMPACT_TOKEN_LIMIT_SCOPE = "total"
+CONTEXT_PAIRS = [
+  [DEFAULT_CONTEXT_WINDOW, DEFAULT_AUTO_COMPACT_TOKEN_LIMIT],
+  [CONTEXT_WINDOW, AUTO_COMPACT_TOKEN_LIMIT],
+].freeze
+PROFILES = {
+  "astra" => ["gpt-6-astra", DEFAULT_CONTEXT_WINDOW],
+  "sol61" => ["gpt-6.1-sol", DEFAULT_CONTEXT_WINDOW],
+  "astra-1m" => ["gpt-6-astra", CONTEXT_WINDOW],
+  "sol61-1m" => ["gpt-6.1-sol", CONTEXT_WINDOW],
+}.freeze
+CONTEXT_KEYS = %w[model_context_window model_auto_compact_token_limit model_auto_compact_token_limit_scope].freeze
 
 class PreflightError < StandardError; end
 
@@ -90,20 +105,18 @@ def validate_config(sections)
 
   raise PreflightError, "model must be one of the 1M catalogue models" unless MODELS.include?(root["model"])
 
-  if root["model_provider"] != "openai_api_direct" &&
-      root["model_context_window"] == CONTEXT_WINDOW &&
-      root["model_auto_compact_token_limit"] == AUTO_COMPACT_TOKEN_LIMIT
+  if root["model_provider"] != "openai_api_direct" && root.key?("model_context_window")
     raise PreflightError,
-          "unsafe split configuration: model_provider is #{root["model_provider"].inspect} while the " \
-          "922000/700000 direct-API limits are active; set model_provider to \"openai_api_direct\", " \
+          "unsafe split configuration: model_provider is #{root["model_provider"].inspect} while " \
+          "direct-API context limits are active; set model_provider to \"openai_api_direct\", " \
           "restart every Codex app server, and start or fork a fresh thread"
   end
 
   require_value(root["model_provider"], "openai_api_direct", "model_provider")
-  require_value(root["model_context_window"], CONTEXT_WINDOW, "model_context_window")
+  require_value(root["model_context_window"], DEFAULT_CONTEXT_WINDOW, "model_context_window")
   require_value(
     root["model_auto_compact_token_limit"],
-    AUTO_COMPACT_TOKEN_LIMIT,
+    DEFAULT_AUTO_COMPACT_TOKEN_LIMIT,
     "model_auto_compact_token_limit",
   )
   require_value(
@@ -154,6 +167,48 @@ def validate_catalog(path)
   end
 rescue JSON::ParserError
   raise PreflightError, "model catalogue is not valid JSON"
+end
+
+# Profiles layer `<name>.config.toml` over the base config. A profile that sets
+# context limits must also pin the direct provider and use an allowed pair.
+def validate_profiles(codex_home)
+  Dir.glob(File.join(codex_home, "*.config.toml")).sort.each do |path|
+    name = File.basename(path, ".config.toml")
+    root = read_config(path)["root"]
+    unless CONTEXT_KEYS.any? { |key| root.key?(key) }
+      provider = root["model_provider"]
+      if provider == "openai"
+        raise PreflightError, "unsafe split configuration: #{name} profile selects the ChatGPT-backed " \
+                              "\"openai\" route but inherits the direct-API context limits"
+      elsif provider && provider != "openai_api_direct"
+        warn "Warning: #{name} profile switches to #{provider.inspect} but inherits the " \
+             "base direct-API context limits; set limits that route supports in that profile"
+      end
+      next
+    end
+
+    label = "#{name} profile"
+    require_value(root["model_provider"], "openai_api_direct", "#{label} model_provider")
+    pair = [root["model_context_window"], root["model_auto_compact_token_limit"]]
+    unless CONTEXT_PAIRS.include?(pair)
+      raise PreflightError, "#{label} must set context/compaction to 500000/400000 or 922000/700000"
+    end
+    if root.key?("model_auto_compact_token_limit_scope")
+      require_value(root["model_auto_compact_token_limit_scope"], AUTO_COMPACT_TOKEN_LIMIT_SCOPE,
+                    "#{label} model_auto_compact_token_limit_scope")
+    end
+  end
+
+  PROFILES.each do |name, (model, context_window)|
+    path = File.join(codex_home, "#{name}.config.toml")
+    raise PreflightError, "profile missing: #{path}" unless File.file?(path)
+
+    root = read_config(path)["root"]
+    require_value(root["model"], model, "#{name} profile model")
+    require_value(root["model_provider"], "openai_api_direct", "#{name} profile model_provider")
+    require_value(root.fetch("model_context_window", DEFAULT_CONTEXT_WINDOW), context_window,
+                  "#{name} profile model_context_window")
+  end
 end
 
 def run_auth_helper(command, timeout_ms, environment: {})
@@ -233,6 +288,7 @@ begin
   sections = read_config(config_path)
   catalog_path, auth_command, timeout_ms = validate_config(sections)
   validate_catalog(catalog_path)
+  validate_profiles(File.dirname(config_path))
   run_auth_helper(auth_command, timeout_ms)
   check_private_home_auth(auth_command, timeout_ms) if private_home
 

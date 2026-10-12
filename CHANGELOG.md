@@ -6,6 +6,10 @@ summary: Timeline of guardrail helper changes mirrored from Sweetistics and rela
 
 ## Unreleased
 
+- Default Codex sessions to a 500k context window with 400k compaction; add `astra`, `sol61`, `astra-1m`, and `sol61-1m` profiles (`codex -p <name>`), the `-1m` ones keeping the 922k/700k direct-API limits. The `codex-huge-context` preflight enforces the profiles and the provider/context pairing for every profile file.
+
+- Run `codex-first` autoreviews at medium reasoning on Ultrafast.
+
 - Update Puppeteer Core to 25.13.0 with its matching browser protocol dependencies; keep the Node.js runtime floor unchanged.
 
 - Prevent Nano Banana image outputs from following symlinks or overwriting existing files, including through raced parent paths; retain explicit output directories. Thanks @DillyRabbit! (#46)
