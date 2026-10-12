@@ -109,3 +109,7 @@ When syncing downstream repos:
 - Keep scripts dependency-free and portable; no repo-specific imports or path aliases.
 
 For submodules, repeat the pointer check inside each subrepo, push those changes, then bump submodule SHAs in the parent repo.
+
+## Releases
+
+See [RELEASING.md](RELEASING.md) for the signed-tag GitHub release workflow and its no-publish rehearsal.
