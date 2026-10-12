@@ -36,7 +36,7 @@ not hands-on self-delegation. Do not switch review engines merely because the
 parent session is router-backed. This exception takes precedence over the gate
 below.
 
-Use the autoreview helper with `--engine codex --model gpt-6.1-sol --thinking medium --codex-speed ultrafast` unless the user requests an override. Preserve the helper's reviewer isolation.
+Use the autoreview helper with `--engine codex --model gpt-6.1-sol --thinking medium --codex-speed ultrafast --codex-config 'model_provider="openai_api_direct"'` unless the user requests an override (on the direct-API route; without the provider flag the reviewer takes the ChatGPT route and fails with 401s). Preserve the helper's reviewer isolation.
 
 For direct hands-on delegation, use this skill only
 when the active agent is Claude Code **and** the session is running on a native
