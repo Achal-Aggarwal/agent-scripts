@@ -74,12 +74,17 @@ name = "OpenAI API direct"
 base_url = "https://api.openai.com/v1"
 wire_api = "responses"
 requires_openai_auth = false
+supports_websockets = true
 
 [model_providers.openai_api_direct.auth]
 command = "/Users/steipete/.codex/bin/fetch-openai-inference-key.zsh"
 timeout_ms = 5000
 refresh_interval_ms = 300000
 ```
+
+`supports_websockets = true` is required: custom providers default to HTTP, which re-uploads the full
+prompt every step (measured 2026-10-12 at 150k context on a ~22 Mbps uplink: 26-59 s per step on HTTP vs
+0.8-3.7 s on WebSocket, whose continuations send only new items).
 
 Replace legacy values such as `model_context_window = 1050000` or `922000` at the root; do not leave duplicate root keys. Keep the scope at `total`, because the safety budget applies to the complete active request, not only content added after a compaction prefix.
 

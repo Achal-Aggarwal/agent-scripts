@@ -6,6 +6,8 @@ summary: Timeline of guardrail helper changes mirrored from Sweetistics and rela
 
 ## Unreleased
 
+- `codex-huge-context`: require `supports_websockets = true` on the `openai_api_direct` provider; custom providers default to HTTP and re-upload the whole prompt every step (26-59 s vs 0.8-3.7 s per step at 150k context, measured 2026-10-12).
+
 - `codex-first` autoreviews use the helper defaults again: subscription first, automatic direct-API fallback on auth failure.
 
 - Slim `codex-first` to a focused entrypoint with on-demand launch, recovery, and coordination references; preserve routing and launch rules and add the work-order proof policy.

@@ -128,6 +128,7 @@ def validate_config(sections)
   require_value(provider["base_url"], "https://api.openai.com/v1", "openai_api_direct.base_url")
   require_value(provider["wire_api"], "responses", "openai_api_direct.wire_api")
   require_value(provider["requires_openai_auth"], false, "openai_api_direct.requires_openai_auth")
+  require_value(provider["supports_websockets"], true, "openai_api_direct.supports_websockets")
   require_value(auth["timeout_ms"], 5000, "openai_api_direct.auth.timeout_ms")
   require_value(auth["refresh_interval_ms"], 300_000, "openai_api_direct.auth.refresh_interval_ms")
 

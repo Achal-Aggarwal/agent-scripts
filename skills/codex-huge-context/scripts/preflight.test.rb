@@ -80,6 +80,7 @@ def write_fixture(
       base_url = "https://api.openai.com/v1"
       wire_api = "responses"
       requires_openai_auth = false
+      supports_websockets = true
 
       [model_providers.openai_api_direct.auth]
       command = #{helper.inspect}
