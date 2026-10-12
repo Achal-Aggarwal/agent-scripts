@@ -6,6 +6,8 @@ summary: Timeline of guardrail helper changes mirrored from Sweetistics and rela
 
 ## Unreleased
 
+- `codex-first` autoreviews use the helper defaults again: subscription first, automatic direct-API fallback on auth failure.
+
 - Slim `codex-first` to a focused entrypoint with on-demand launch, recovery, and coordination references; preserve routing and launch rules and add the work-order proof policy.
 
 - Global proof rule: PR CI is the default broad proof; use Crabbox/Testbox only when a box is granted right away, else run locally; drop the Testbox → AWS → Hetzner escalation.
