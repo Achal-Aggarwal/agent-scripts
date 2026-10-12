@@ -6,6 +6,8 @@ summary: Timeline of guardrail helper changes mirrored from Sweetistics and rela
 
 ## Unreleased
 
+- `codex-first`: on `gpt-6.1-sol` TPM/capacity errors, resume the worker on GPT-6 Astra, high reasoning, Fast tier (not Ultrafast); Sol 6.1 Ultrafast stays the default.
+
 - `codex-huge-context`: require `supports_websockets = true` on the `openai_api_direct` provider; custom providers default to HTTP and re-upload the whole prompt every step (26-59 s vs 0.8-3.7 s per step at 150k context, measured 2026-10-12).
 
 - `codex-first` autoreviews use the helper defaults again: subscription first, automatic direct-API fallback on auth failure.

@@ -28,6 +28,23 @@ codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
 - Copy all model/reasoning/tier flags into wrappers; override only on user request. Verify launch arguments (`ultrafast` default; requested `fast` is valid).
 - For requested Fast reviews, use `--codex-speed fast`.
 
+### Capacity fallback (Peter, 2026-10-12)
+
+Org caps `gpt-6.1-sol` at 40M tokens/min. Worker or resume fails with `Rate limit reached for
+gpt-6.1-sol ... tokens per min (TPM)` or `Selected model is at capacity` → switch that worker to
+**GPT-6 Astra, high, Fast** (`service_tier="fast"`, not ultrafast); no waiting loop:
+
+```bash
+codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
+  -m gpt-6-astra -c 'model_reasoning_effort="high"' \
+  --enable fast_mode -c 'service_tier="fast"' -o "$OUT" -
+```
+
+- Resume onto Astra keeps the thread (verified 2026-10-12: Sol-created session resumed on Astra and replied).
+  Fresh orders at capacity: same flags with `codex exec --yolo -C "$WT"`.
+- Autoreview at capacity: `--model gpt-6-astra --thinking high --codex-speed fast`.
+- New workers still start on Sol 6.1 Ultrafast; fall back per worker, only on the capacity error.
+
 ## Hard gate
 
 **Autoreview exception:** always prefer Codex-backed `$autoreview`, independent
