@@ -6,6 +6,8 @@ summary: Timeline of guardrail helper changes mirrored from Sweetistics and rela
 
 ## Unreleased
 
+- Global proof rule: PR CI is the default broad proof; use Crabbox/Testbox only when a box is granted right away, else run locally; drop the Testbox → AWS → Hetzner escalation.
+
 - Default Codex sessions to a 500k context window with 400k compaction; add `astra`, `sol61`, `astra-1m`, and `sol61-1m` profiles (`codex -p <name>`), the `-1m` ones keeping the 922k/700k direct-API limits. The `codex-huge-context` preflight enforces the profiles and the provider/context pairing for every profile file.
 
 - Run `codex-first` autoreviews at medium reasoning on Ultrafast.
