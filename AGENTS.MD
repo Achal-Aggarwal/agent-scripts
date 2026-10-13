@@ -73,7 +73,7 @@
 - PR/issue image upload: never computer use/browser. `curl -s "https://uploads.github.com/user-attachments/assets?name=<file>&content_type=<mime>&repository_id=$(gh api repos/<owner>/<repo> --jq .id)" -X POST -H "Authorization: Bearer $(gh auth token)" -H "Accept: application/json" --data-binary @<file>` → response `.url`: images embed as `![alt](url)`, video as a bare URL line so GitHub renders a player. Same CDN as drag-drop, inherits repo visibility, uploads are permanent. Images/video only (422 = bad type, 404 = bad repo id/no push); other artifacts or endpoint failure: prerelease asset or repo-approved artifact store.
 - `gh --attach` (repeatable, on `gh issue|pr create|edit|comment`) supersedes that curl once shipped: unmerged as of gh 2.98.0 (`cli/cli#14186`), so feature-detect, never assume. `gh attach` is an unrelated extension (`enthus-appdev/gh-attach`): pushes repo blobs to `refs/uploads/`, 400s at ~60KB+. Never use it for proof media.
 - Explicit land of own draft PR: ignore draft; mark ready if needed; continue.
-- `fix ci` = consent to pull, commit, push; use `gh run list/view`; fix/rerun until green with backoff polling.
+- `fix ci` = consent to pull, commit, push; use `gh run list/view`. Fetch failed logs once; rerun only the failed tests/checks locally; fix; push once; repeat until green. `gh run rerun --failed` only for a diagnosed infra/flaky failure, never to chase green.
 - GitHub quota: bare `gh` only (Octopool cache). Watch commands (`gh run watch`, `gh pr checks --watch`) shim-native since octopool 0.4.7; still poll one exact id, not loops.
 - Fan-out `gh` reads over many runs/checks/IDs: max 4 in flight. Never unbounded `Promise.all`/`allSettled`, `xargs -P0`, or `&` loops; one such census slowed the shared relay for every Mac (2026-09-23).
 - gh reads: request narrow `--json <fields>` for machine output. `--json` alone does not guarantee relay use: unsupported field bundles (such as PR `mergeStateStatus` or issue `comments`) use native gh for the whole export. Supported human output and exact recognized GraphQL projections can also relay; let the installed Octopool own routing.
@@ -92,7 +92,7 @@
 ## Runtime Safety
 
 - Routine task-needed Crabbox/Testbox lease creation, reuse, use, and cleanup are pre-approved; never ask for confirmation to use them. Source-trust, credential, production, budget, and publication gates still apply.
-- Proof (2026-10-12): PR CI is the default broad proof; prove narrowly and locally first. Use Crabbox/Testbox only for what local runs and CI cannot cover, and only when a box is granted right away; if it queues, run locally. No Testbox → AWS → Hetzner escalation; stop leases after use.
+- Proof (2026-10-12): PR CI is the default broad proof; prove narrowly and locally first. Use Crabbox/Testbox only for what local runs and CI cannot cover, and only when a box is granted right away; if it queues, run locally. No Testbox → AWS → Hetzner escalation; stop leases after use. After PR CI fails: rerun only the failed tests locally, never a local full suite.
 - Low disk space: empty Trash and/or delete old caches, then push and sync across Peter's Macs and continue.
 - zsh: never variable `status`.
 - zsh multi-item loop: array. Scalar string does not word-split like bash.
