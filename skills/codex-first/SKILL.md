@@ -16,34 +16,62 @@ settings unless the user requests an override.
 codex exec --yolo -C "$WT" \
   -m gpt-6.1-sol -c 'model_reasoning_effort="high"' \
   --enable fast_mode -c 'service_tier="ultrafast"' \
+  -c 'model_auto_compact_token_limit=260000' \
   -o "$OUT" - < "$ORDER"
-# resume: pass the same three again; resume does not inherit them
+# resume: pass the same flags again; resume does not inherit them
 codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
   -m gpt-6.1-sol -c 'model_reasoning_effort="high"' \
-  --enable fast_mode -c 'service_tier="ultrafast"' -o "$OUT" -
+  --enable fast_mode -c 'service_tier="ultrafast"' \
+  -c 'model_auto_compact_token_limit=260000' -o "$OUT" -
 ```
 
+- Ultrafast has a context ceiling (measured 2026-10-13, direct Responses probes, gpt-6.1-sol +
+  gpt-6-astra): served `ultrafast` up to ~282k prompt tokens, flaky at 288–294k, `fast` at
+  ≥300k — silently, HTTP 200. Config default compacts at 400k, so long workers drift to Fast;
+  the 260k compact cap keeps them Ultrafast. Rollouts record only the requested tier; prove the
+  served tier with a direct probe (`response.service_tier`).
 - Context: workers get the base 500k window. Add `-p sol61-1m` (or `-p astra-1m`) only when the
-  order needs a whole-repo context; see `$codex-huge-context`.
+  order needs a whole-repo context; see `$codex-huge-context`. Those profiles forfeit Ultrafast
+  above ~280k.
 - Copy all model/reasoning/tier flags into wrappers; override only on user request. Verify launch arguments (`ultrafast` default; requested `fast` is valid).
 - For requested Fast reviews, use `--codex-speed fast`.
 
 ### Capacity fallback (Peter, 2026-10-12)
 
 Org caps `gpt-6.1-sol` at 40M tokens/min. Worker or resume fails with `Rate limit reached for
-gpt-6.1-sol ... tokens per min (TPM)` or `Selected model is at capacity` → switch that worker to
-**GPT-6 Astra, high, Fast** (`service_tier="fast"`, not ultrafast); no waiting loop:
+gpt-6.1-sol ... tokens per min (TPM)`, `Selected model is at capacity`, or `overloaded` → resume
+that same session on **GPT-6 Astra, high, Ultrafast** immediately (Peter, 2026-10-12: "use
+astra if sol has rate limits"; Astra serves `ultrafast`, verified 2026-10-13); no waiting loop:
 
 ```bash
 codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
   -m gpt-6-astra -c 'model_reasoning_effort="high"' \
-  --enable fast_mode -c 'service_tier="fast"' -o "$OUT" -
+  --enable fast_mode -c 'service_tier="ultrafast"' \
+  -c 'model_auto_compact_token_limit=260000' -o "$OUT" -
 ```
 
 - Resume onto Astra keeps the thread (verified 2026-10-12: Sol-created session resumed on Astra and replied).
-  Fresh orders at capacity: same flags with `codex exec --yolo -C "$WT"`.
-- Autoreview at capacity: `--model gpt-6-astra --thinking high --codex-speed fast`.
+  Fresh orders at capacity: same flags with `codex exec --yolo -C "$WT"`; a fresh launch that dies
+  on capacity already has a session id in stderr (`session id: …`) — resume that, don't relaunch.
+- Back off only when Sol and Astra are both limited; then alternate with growing sleeps.
+- Wrapper retry triggers must match all three strings (`rate limit|at capacity|overloaded`);
+  matching only "rate limit" made capacity failures exit instead of falling back.
+- Autoreview at capacity: `--model gpt-6-astra --thinking high --codex-speed fast`. If autoreview
+  refuses because its provider/route doesn't match operator config, don't change config — review
+  with a fresh-context subagent (diff + brief) and say so in the PR.
 - New workers still start on Sol 6.1 Ultrafast; fall back per worker, only on the capacity error.
+
+### Wrapper and process hygiene (2026-10-12/13)
+
+- Never edit a running wrapper script in place: bash reads scripts incrementally, so live runs
+  execute the new bytes at their old offset. Write `x.new`, `bash -n`, `chmod +x`, then `mv`
+  (rename keeps the old inode for running copies; forgetting `chmod` gives exit 126).
+- Killing a wrapper orphans its `codex exec` children; the next resume then fails with
+  `thread … already has an active writer`. Stop workers by session id:
+  `pgrep -f "$SID"` (node + native binary), wait for exit, then resume. A leftover
+  `~/.codex/thread-writer-locks/$SID.lock` file without a live holder is harmless.
+- To redirect a running worker (new design/priority), stop it as above and resume the same
+  session with the new order; its worktree changes and context survive.
 
 ## Hard gate
 
