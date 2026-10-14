@@ -78,8 +78,8 @@ ssh -o RequestTTY=no -o RemoteCommand=none steipete@steipete-macstudio.local \
 
 clawstudio healthy shape:
 
-- Use the immutable manager-owned runtime, not a global `openclaw` binary: `~/.local/share/openclaw-clawstudio/run-current gateway status --deep --require-rpc --json`.
-- `lsof -nP -iTCP:18789 -sTCP:LISTEN` shows the immutable release listener on `*:18789`.
+- Follow `$claw-update` and the private deployment runbook for supported native takeover and ordinary `openclaw update`. Diagnose through the verified Production CLI with `gateway status --deep --require-rpc --json`; never assume an unrelated global CLI is Production or delete a legacy launcher before takeover is verified.
+- `lsof -nP -iTCP:18789 -sTCP:LISTEN` must agree with the verified Production service PID. Prove the serving installation and exclusive listener, rather than inferring health from a release-directory name.
 - The tailnet portal and Gateway are separate health layers. Prove deep Gateway RPC and tailnet HTTPS independently; one can remain healthy while the other is unavailable.
 - Never start `gateway:watch`, restart the Gateway, or alter its release while repairing Tailscale.
 

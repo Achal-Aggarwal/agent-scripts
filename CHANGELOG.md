@@ -6,6 +6,8 @@ summary: Timeline of guardrail helper changes mirrored from Sweetistics and rela
 
 ## Unreleased
 
+- Route personal Gateway checks through the verified native installation and update owner; preserve legacy service custody until supported takeover is complete.
+
 - Global `fix ci` rule: rerun only the failed tests/checks locally and push fixes once; `gh run rerun --failed` only for diagnosed infra/flaky failures, never to chase green.
 
 - `codex-first`: on `gpt-6.1-sol` TPM/capacity errors, resume the worker on GPT-6 Astra, high reasoning, Fast tier (not Ultrafast); Sol 6.1 Ultrafast stays the default.
