@@ -60,18 +60,24 @@ codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
   refuses because its provider/route doesn't match operator config, don't change config — review
   with a fresh-context subagent (diff + brief) and say so in the PR.
 - New workers still start on Sol 6.1 Ultrafast; fall back per worker, only on the capacity error.
+- Restarts and recoveries: `~/.codex/skills/agent-scripts/codex-first/scripts/codex-resume` does the
+  fallback, busy check, safe stop, and classified exits ([resume and watchdog](references/resume-and-watchdog.md)).
 
 ### Wrapper and process hygiene (2026-10-12/13)
 
 - Never edit a running wrapper script in place: bash reads scripts incrementally, so live runs
   execute the new bytes at their old offset. Write `x.new`, `bash -n`, `chmod +x`, then `mv`
   (rename keeps the old inode for running copies; forgetting `chmod` gives exit 126).
+- Never run `codex exec` under `set -e` in a wrapper: a rate-limit death exits non-zero and ends
+  the script before its fallback runs (2026-10-13, a 27-worker fleet). Capture the code
+  (`… && rc=0 || rc=$?`) and classify it, or hand the session to `codex-resume`.
 - Killing a wrapper orphans its `codex exec` children; the next resume then fails with
-  `thread … already has an active writer`. Stop workers by session id:
-  `pgrep -f "$SID"` (node + native binary), wait for exit, then resume. A leftover
+  `thread … already has an active writer`. Stop and resume with `codex-resume --stop "$SID"`:
+  it finds the worker through its open rollout file (fresh launches don't carry `$SID` in argv,
+  so `pgrep -f` misses them) and refuses while `scripts/pr` or git runs beneath it. A leftover
   `~/.codex/thread-writer-locks/$SID.lock` file without a live holder is harmless.
-- To redirect a running worker (new design/priority), stop it as above and resume the same
-  session with the new order; its worktree changes and context survive.
+- To redirect a running worker (new design/priority), `codex-resume --stop -p "$ORDER_FILE" "$SID"` (or `--message "…"`);
+  its worktree changes and context survive.
 
 ## Hard gate
 
@@ -175,7 +181,7 @@ Portfolio/multi-repo work: `$maintainer-orchestrator` instead.
 - outside a git repo add `--skip-git-repo-check`
 - For Fast/catalog checks, CLI setup, or execution details: read [launch details](references/launch-details.md).
 - On failure or provider changes: [troubleshooting](references/troubleshooting.md); never put credentials in `-c key=value`.
-- Before resuming/monitoring: [resume and watchdog](references/resume-and-watchdog.md).
+- Before resuming/monitoring: [resume and watchdog](references/resume-and-watchdog.md). Resume and restart through `scripts/codex-resume` (`--dry-run` first when unsure).
 
 ## Prompt contract
 

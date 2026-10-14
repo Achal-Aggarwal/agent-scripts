@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# codex-resume: restart a Codex worker in its existing session (context kept).
+# Semantics, exit codes, and launcher rules: ../references/resume-and-watchdog.md.
+# No `set -e`: a failed codex run must reach the classification below.
+set -uo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: codex-resume [options] <session-id | codex log with a "session id:" line>
+
+Resumes the session from its recorded cwd with full model/reasoning/tier flags.
+On a rate limit or capacity error it switches between the primary and fallback
+model; when both are limited it backs off and retries.
+
+Options:
+  -p, --prompt FILE     follow-up prompt (default: a generic "continue" message)
+      --message TEXT    inline follow-up prompt
+  -o, --out FILE        final message (default: $XDG_STATE_HOME/codex-first/<sid>/last-message.md)
+      --log-dir DIR     per-attempt logs (default: directory of --out)
+      --cwd DIR         override the session's recorded cwd
+      --model M         starting model (default gpt-6.1-sol; fallback gpt-6-astra)
+      --tier T          starting service tier (default ultrafast for both)
+      --stop            stop a live worker on this session first, then resume
+      --force           with --stop: stop even while git/landing commands run
+      --max-attempts N  attempts before giving up (default 12)
+      --dry-run         print the resolved plan; run and stop nothing
+
+Exit: 0 finished, 1 gave up or unclassified failure (see log), 2 usage error,
+      3 session not resumable (relaunch fresh), 4 session live (use --stop),
+      5 stop refused or failed.
+EOF
+}
+
+die() { echo "codex-resume: $1" >&2; exit "${2:-2}"; }
+
+sid_arg="" prompt_file="" message="" out="" log_dir="" cwd=""
+stop=0 force=0 dry=0 max_attempts=12
+# A rate limit switches between these two; --model/--tier only pick where the run starts.
+primary_model="${CODEX_PRIMARY_MODEL:-gpt-6.1-sol}" primary_tier="${CODEX_PRIMARY_TIER:-ultrafast}"
+fallback_model="${CODEX_FALLBACK_MODEL:-gpt-6-astra}" fallback_tier="${CODEX_FALLBACK_TIER:-ultrafast}"
+# Ultrafast is served only below ~280k prompt tokens; compacting at 260k keeps workers on it.
+compact_limit="${CODEX_AUTO_COMPACT_TOKEN_LIMIT:-260000}"
+model="$primary_model" tier="$primary_tier"
+reasoning="${CODEX_REASONING:-high}"
+backoff="${CODEX_RESUME_BACKOFF:-180}" transport_wait="${CODEX_RESUME_TRANSPORT_WAIT:-30}"
+grace="${CODEX_RESUME_STOP_GRACE:-30}"
+# Git global options (`git -C "$WT" rebase`, `git -c k=v commit`) may precede the subcommand.
+busy_pattern="${CODEX_RESUME_BUSY_PATTERN:-scripts/pr|git( +(-[cC] +[^ ]+|--[^ ]+))* +(push|rebase|merge|cherry-pick|am|commit)( |$)|gh pr (merge|create)}"
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p|--prompt|--message|-o|--out|--log-dir|--cwd|--model|--tier|--max-attempts)
+      [ $# -ge 2 ] || die "$1 needs a value" ;;
+  esac
+  case "$1" in
+    -p|--prompt) prompt_file="$2"; shift 2 ;;
+    --message) message="$2"; shift 2 ;;
+    -o|--out) out="$2"; shift 2 ;;
+    --log-dir) log_dir="$2"; shift 2 ;;
+    --cwd) cwd="$2"; shift 2 ;;
+    --model) model="$2"; shift 2 ;;
+    --tier) tier="$2"; shift 2 ;;
+    --max-attempts) max_attempts="$2"; shift 2 ;;
+    --stop) stop=1; shift ;;
+    --force) force=1; shift ;;
+    --dry-run) dry=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    -*) die "unknown option: $1" ;;
+    *) [ -z "$sid_arg" ] || die "pass one session"; sid_arg="$1"; shift ;;
+  esac
+done
+[ -n "$sid_arg" ] || { usage >&2; exit 2; }
+case "$max_attempts" in ''|*[!0-9]*|0) die "--max-attempts needs a positive number" ;; esac
+# Validate the follow-up before --stop can end a worker that we then fail to resume.
+[ -z "$prompt_file" ] || [ -r "$prompt_file" ] || die "cannot read prompt file $prompt_file (pass text with --message)"
+
+if [ -f "$sid_arg" ]; then
+  sid="$(grep -a -m1 'session id:' "$sid_arg" | awk '{print $NF}')"
+  [ -n "$sid" ] || die "no 'session id:' line in $sid_arg: the run never started, so relaunch fresh" 3
+else
+  sid="$sid_arg"
+fi
+case "$sid" in ''|*[!0-9a-f-]*) die "not a session id: $sid" ;; esac
+
+rollout="$(find "$codex_home/sessions" "$codex_home/archived_sessions" -name "rollout-*-$sid.jsonl" 2>/dev/null | head -1)"
+[ -n "$rollout" ] || die "no rollout for session $sid under $codex_home: relaunch fresh" 3
+
+# `codex exec resume` has no -C; the session's recorded cwd is where it resumes.
+if [ -z "$cwd" ]; then
+  cwd="$(head -1 "$rollout" | { jq -r '.payload.cwd // empty' 2>/dev/null || sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p'; })"
+fi
+[ -n "$cwd" ] && [ -d "$cwd" ] || die "session cwd '${cwd:-?}' is missing (worktree removed?); pass --cwd"
+
+[ -n "$out" ] || out="${XDG_STATE_HOME:-$HOME/.local/state}/codex-first/$sid/last-message.md"
+[ -n "$log_dir" ] || log_dir="$(dirname "$out")"
+# Codex runs from the session cwd, so caller-relative paths must be made absolute first.
+case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
+case "$log_dir" in /*) ;; *) log_dir="$PWD/$log_dir" ;; esac
+
+# A live codex process keeps its rollout file open; that is the reliable "session busy" signal.
+# Filtering by command name keeps lsof at ~0.3 s instead of ~4 s on a busy Mac.
+command -v lsof >/dev/null || die "lsof is required to tell whether the session is live"
+holder_cmd="${CODEX_RESUME_HOLDER-codex}"
+lsof_args=(-nP -t)
+[ -z "$holder_cmd" ] || lsof_args+=(-a -c "$holder_cmd")
+holders() { lsof "${lsof_args[@]}" -- "$rollout" 2>/dev/null | sort -u; }
+descendants() { local p; for p in $(pgrep -P "$1" 2>/dev/null); do echo "$p"; descendants "$p"; done; }
+live="$(holders | tr '\n' ' ')"
+
+if [ "$dry" -eq 1 ]; then
+  echo "session  $sid"
+  echo "rollout  $rollout"
+  echo "cwd      $cwd"
+  echo "live     ${live:-none}"
+  echo "start    $model/$tier (reasoning $reasoning); on limit switches $primary_model/$primary_tier <-> $fallback_model/$fallback_tier"
+  echo "out      $out"
+  echo "logs     $log_dir/resume-<utc>-p<pid>-<n>.log"
+  echo "command  (cd $cwd && codex exec resume $sid --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -m $model -c model_reasoning_effort=\"$reasoning\" --enable fast_mode -c service_tier=\"$tier\" -c model_auto_compact_token_limit=$compact_limit -o $out - < <prompt>)"
+  exit 0
+fi
+
+signal_and_wait() { # <signal> <seconds> <pids...>: true once nothing holds the rollout
+  local sig="$1" secs="$2"; shift 2
+  kill -"$sig" "$@" 2>/dev/null
+  for _ in $(seq 1 "$secs"); do [ -z "$(holders)" ] && return 0; sleep 1; done
+  [ -z "$(holders)" ]
+}
+
+if [ -n "${live// /}" ]; then
+  [ "$stop" -eq 1 ] || die "session $sid is live (pid $live); pass --stop to restart it" 4
+  # Never interrupt a worker mid-landing: an interrupted scripts/pr checkout once left a zero-byte file.
+  if [ "$force" -ne 1 ]; then
+    inflight=""
+    for p in $live; do
+      for d in $(descendants "$p"); do
+        c="$(ps -o command= -p "$d" 2>/dev/null)"
+        # Match the full command line; show at most 160 characters (git archive lines run to KBs).
+        if printf '%s\n' "$c" | grep -Eq "$busy_pattern"; then inflight="$inflight
+  $d ${c:0:160}"; fi
+      done
+    done
+    [ -z "$inflight" ] || die "refusing to stop session $sid; git/landing work is in flight:$inflight
+retry after it finishes, or pass --force" 5
+  fi
+  # Signal only the holders (the native codex binary); its npm wrapper exits with it, and
+  # matching parents by name once killed a coordinator whose path contained "codex".
+  # shellcheck disable=SC2086
+  signal_and_wait INT "$grace" $live || signal_and_wait TERM 15 $live || signal_and_wait KILL 5 $live \
+    || die "session $sid still held by pid $(holders | tr '\n' ' ') after INT/TERM/KILL" 5
+  echo "codex-resume: stopped pid $live"
+fi
+
+mkdir -p "$log_dir" "$(dirname "$out")" || die "cannot create $log_dir"
+prompt="$(mktemp "${TMPDIR:-/tmp}/codex-resume.XXXXXX")" || die "mktemp failed"
+trap 'rm -f "$prompt"' EXIT
+if [ -n "$prompt_file" ]; then
+  cat "$prompt_file" > "$prompt" 2>/dev/null || die "cannot read $prompt_file"
+elif [ -n "$message" ]; then
+  printf '%s\n' "$message" > "$prompt"
+else
+  printf '%s\n' "Your process was restarted; the session and your context are intact. Continue exactly where you left off, finish the task, and produce the required final report." > "$prompt"
+fi
+# Retries after a dead run must not re-send the follow-up: the session already recorded it.
+retry_msg="Your previous run stopped on a rate-limit or transport error; the session and your context are intact. Continue exactly where you left off, finish the task, and produce the required final report."
+
+cur_model="$model" cur_tier="$tier" limited_in_a_row=0 backoffs=0 log=""
+for attempt in $(seq 1 "$max_attempts"); do
+  [ "$attempt" -eq 1 ] || printf '%s\n' "$retry_msg" > "$prompt"
+  # The pid keeps concurrent restarts that share a log directory from truncating each other's logs.
+  log="$log_dir/resume-$(date -u +%Y%m%dT%H%M%SZ)-p$$-$attempt.log"
+  # --skip-git-repo-check: sessions started outside a repo (scratch dirs) must resume too.
+  (cd "$cwd" && command codex exec resume "$sid" --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
+    -m "$cur_model" -c "model_reasoning_effort=\"$reasoning\"" \
+    --enable fast_mode -c "service_tier=\"$cur_tier\"" \
+    -c "model_auto_compact_token_limit=$compact_limit" \
+    -o "$out" - < "$prompt") > "$log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "codex-resume: finished session=$sid model=$cur_model/$cur_tier attempts=$attempt out=$out log=$log"
+    exit 0
+  fi
+  # The log also holds the agent's transcript and tool output, so match codex's own error lines
+  # only. It floods the tail with "failed to record rollout items" after some deaths; skip that.
+  tail_text="$(grep -av 'failed to record rollout items' "$log" | tail -n 80)"
+  if head -n 1 "$log" | grep -q '^error: ' && head -n 20 "$log" | grep -q '^Usage: codex exec'; then
+    die "codex rejected the resume flags (rc=$rc); see $log" 2
+  elif printf '%s\n' "$tail_text" | grep -Eq '^(Error|ERROR): .*already has an active writer'; then
+    die "session $sid has another live writer (an orphaned codex?); pass --stop (rc=$rc); see $log" 4
+  elif printf '%s\n' "$tail_text" | grep -Eq '^Error: thread/resume'; then
+    die "backend refused to resume session $sid (rc=$rc): relaunch fresh with a self-contained order; see $log" 3
+  elif printf '%s\n' "$tail_text" | grep -Eq '^ERROR: .*(Rate limit reached for|Selected model is at capacity|[Oo]verloaded)'; then
+    limited_in_a_row=$((limited_in_a_row + 1))
+    # The capacity error names no model; it always refers to the one this attempt used.
+    if [ "$cur_model" = "$fallback_model" ]; then
+      cur_model="$primary_model" cur_tier="$primary_tier"
+    else
+      cur_model="$fallback_model" cur_tier="$fallback_tier"
+    fi
+    if [ "$limited_in_a_row" -ge 2 ]; then
+      # Growing sleeps while both are limited: 1x, 2x, 3x, then 4x the base.
+      backoffs=$((backoffs + 1)); wait_s=$((backoff * (backoffs < 4 ? backoffs : 4)))
+      echo "codex-resume: attempt $attempt: both models limited; retrying on $cur_model/$cur_tier in ${wait_s}s"
+      sleep "$wait_s"; limited_in_a_row=0
+    else
+      echo "codex-resume: attempt $attempt: rate-limited; switching to $cur_model/$cur_tier"
+    fi
+  elif printf '%s\n' "$tail_text" | grep -Eq '^ERROR: (stream disconnected|Reconnecting\.\.\. [0-9]+/[0-9]+)'; then
+    limited_in_a_row=0
+    echo "codex-resume: attempt $attempt: transport error; retrying on $cur_model/$cur_tier in ${transport_wait}s"
+    sleep "$transport_wait"
+  else
+    die "codex exited rc=$rc for an unclassified reason; not retrying blindly. See $log" 1
+  fi
+done
+die "gave up after $max_attempts rate-limited/transport attempts; last log $log" 1
