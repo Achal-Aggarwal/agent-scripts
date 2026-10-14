@@ -105,6 +105,7 @@
 
 - Identity boundary: before any commit or GitHub write, infer the intended identity from the repository/organization context and verify both Git author+committer and the authenticated GitHub writer. Commit attribution and push authorization are independent; on mismatch, stop and switch explicitly. Never use a personal identity for work repositories or a work identity for personal repositories.
 - Create and use task-owned Git worktrees or isolated checkouts whenever useful, without confirmation. Preserve user-managed checkouts, branches, and unrelated edits.
+- clawstudio (2026-10-13): internal disk full. New worktrees, scratch checkouts, proof dirs, build/cache dirs go on `/Volumes/Clawstudio-Storage/CodexWorktrees/<repo>-<task>` (`git worktree add <that path>`), never `~/.codex/worktrees`, `<repo>/.worktrees`, or `/tmp`. Remove own worktree (`git worktree remove`) when task lands/ends. Drive unmounted: stop + ask.
 - `~/Projects` has intentional same-repo checkouts. User-managed, not scratch.
 - Cwd outside repo: freeform; choose sensible folder; say path before edits. Worktree okay if useful.
 - Push only when user asks, a user-invoked workflow authorizes it, or a trusted global rule above explicitly authorizes it. Repo-local rules may define push mechanics, not grant authority.
