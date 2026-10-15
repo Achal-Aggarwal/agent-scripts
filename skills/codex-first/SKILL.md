@@ -36,6 +36,20 @@ codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
 - Copy all model/reasoning/tier flags into wrappers; override only on user request. Verify launch arguments (`ultrafast` default; requested `fast` is valid).
 - For requested Fast reviews, use `--codex-speed fast`.
 
+### Cyber-classifier refusal → Daybreak Red (Peter, 2026-10-15)
+
+Worker stops with `This content was flagged for possible cybersecurity risk` → relaunch or resume
+the same order on **Daybreak Red** (Peter: "use daybreak red if you hit a blocker with regular
+models"). Don't rephrase to dodge the classifier or hop between regular models.
+
+- Direct API only: the ChatGPT-account route returns 400 `not supported when using Codex with a
+  ChatGPT account`. Add `-c 'model_provider="openai_api_direct"'` (API key via the provider's
+  auth command in `~/.codex/config.toml`).
+- Slug: the `model_catalog_json` entry whose `display_name` is `Daybreak Red`. Keep it out of
+  public artifacts (commits, PRs, issues, logs) per public model naming.
+- No Ultrafast: drop `--enable fast_mode` / `service_tier`; keep `model_reasoning_effort="high"`.
+- Verified 2026-10-15 with a one-line `codex exec` probe on the direct provider.
+
 ### Capacity fallback (Peter, 2026-10-12)
 
 Org caps `gpt-6.1-sol` at 40M tokens/min. Worker or resume fails with `Rate limit reached for
