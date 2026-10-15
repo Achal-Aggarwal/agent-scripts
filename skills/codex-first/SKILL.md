@@ -158,7 +158,11 @@ Delegate to Codex (default for hands-on work):
   cannot attach — no merge ref) and confirm a run attached to the exact head
   SHA before polling; every wait emits all terminal states with bounded
   iterations; prefer the repo's watcher script when one exists (openclaw:
-  `node scripts/watch-pr-ci.mjs`).
+  `node scripts/watch-pr-ci.mjs`). Never `gh run watch` or `gh pr checks --watch`
+  in work orders: `gh run watch` polls every 3 s by default (~1,200 calls/hour), and
+  two such watchers drained a shared 5,000/hour writer token twice on 2026-10-15.
+  Poll one exact run with `gh run view <id> --json status,conclusion` at most every
+  ~10 minutes, or let the repo's landing tool own the wait.
 - new work orders go to FRESH `codex exec` sessions with self-contained prompts.
   Do not resume a long-lived session for a new order — saturated sessions
   misread work orders as configuration and no-op ("Understood…").
