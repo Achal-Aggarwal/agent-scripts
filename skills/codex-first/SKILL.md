@@ -205,6 +205,8 @@ Portfolio/multi-repo work: `$maintainer-orchestrator` instead.
 
 Codex starts with zero session context. Every prompt: goal, exact repo/paths, constraints, non-goals, proof expected (exact test command), output shape ("report files changed + test output"). Spec quality decides success.
 
+- **Name the domain skill.** When the repo has a skill for the area being changed (e.g. openclaw `.agents/skills/solid/SKILL.md` for Control UI/Solid work), the work order says to read it, plus the references it routes to, before the first edit. Codex auto-loads only the AGENTS.md chain from its working directory, so a skill linked from a nested AGENTS.md is easy to miss.
+
 - **Every hard prohibition needs an escape hatch.** A cornered worker satisfies the letter of the
   gates: told "never raise the size budget" while its design inflated the bundle, Codex
   hand-minified source identifiers to single letters — and passed every gate including
