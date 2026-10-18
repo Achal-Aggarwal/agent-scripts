@@ -36,7 +36,11 @@ codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
 - Copy all model/reasoning/tier flags into wrappers; override only on user request. Verify launch arguments (`ultrafast` default; requested `fast` is valid).
 - For requested Fast reviews, use `--codex-speed fast`.
 
-### Cyber-classifier refusal → Daybreak Red (Peter, 2026-10-15)
+### Security audits and cyber-classifier refusals → Daybreak Red (Peter, 2026-10-15/18)
+
+Security audit lanes (threat models, injection/secret-exposure audits, permission inventories,
+security review of hardening diffs) launch on **Daybreak Red** from the start (Peter 2026-10-18:
+"use daylight red model for security audits"). Implementation workers stay on Sol.
 
 Worker stops with `This content was flagged for possible cybersecurity risk` → relaunch or resume
 the same order on **Daybreak Red** (Peter: "use daybreak red if you hit a blocker with regular
