@@ -96,6 +96,9 @@ codex exec resume "$SID" --dangerously-bypass-approvals-and-sandbox \
   `~/.codex/thread-writer-locks/$SID.lock` file without a live holder is harmless.
 - To redirect a running worker (new design/priority), `codex-resume --stop -p "$ORDER_FILE" "$SID"` (or `--message "…"`);
   its worktree changes and context survive.
+- To retire a worker for good, do not use `codex-resume`: `--stop` always resumes afterward
+  (2026-10-18, a cancelled worker restarted in its deleted worktree). Kill the native codex
+  binary (`pgrep -P <node-shim-pid>`), then the node shim and its wrapper.
 
 ## Hard gate
 
