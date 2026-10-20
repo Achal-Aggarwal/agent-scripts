@@ -579,7 +579,6 @@ mac_release_load() {
   : "${MAC_RELEASE_FEED_URL:?MAC_RELEASE_FEED_URL missing}"
   : "${MAC_RELEASE_DOWNLOAD_URL_PREFIX:?MAC_RELEASE_DOWNLOAD_URL_PREFIX missing}"
   : "${MAC_RELEASE_APP_ZIP:?MAC_RELEASE_APP_ZIP missing}"
-  : "${MAC_RELEASE_PACKAGE_CMD:?MAC_RELEASE_PACKAGE_CMD missing}"
 
   APP_NAME="$MAC_RELEASE_APP_NAME"
   APPCAST=$(mac_release_expand "$MAC_RELEASE_APPCAST")
@@ -679,6 +678,37 @@ if secret.count == 32 {
 SWIFT
 }
 
+mac_release_verify_ed_signature() {
+  local public_key=$1 signature=$2 file=${3:?"file required"}
+  require_bin swift
+  CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-${TMPDIR:-/tmp}/mac-release-clang-module-cache}" \
+    SWIFT_MODULE_CACHE_PATH="${SWIFT_MODULE_CACHE_PATH:-${TMPDIR:-/tmp}/mac-release-swift-module-cache}" \
+    swift - "$public_key" "$signature" "$file" <<'SWIFT'
+import CryptoKit
+import Foundation
+
+guard let publicKey = Data(base64Encoded: CommandLine.arguments[1]), publicKey.count == 32 else {
+  fputs("Invalid public key: SUPublicEDKey must be base64 encoding 32 bytes.\n", stderr)
+  exit(1)
+}
+guard let signature = Data(base64Encoded: CommandLine.arguments[2]), signature.count == 64 else {
+  fputs("Invalid signature: EdDSA signature must be base64 encoding 64 bytes.\n", stderr)
+  exit(1)
+}
+do {
+  let key = try Curve25519.Signing.PublicKey(rawRepresentation: publicKey)
+  let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3]), options: .alwaysMapped)
+  guard key.isValidSignature(signature, for: data) else {
+    fputs("EdDSA signature does not match SUPublicEDKey.\n", stderr)
+    exit(1)
+  }
+} catch {
+  fputs("Could not verify EdDSA signature: \(error.localizedDescription)\n", stderr)
+  exit(1)
+}
+SWIFT
+}
+
 mac_release_public_key_for_source() {
   local source=${1:-keychain}
   require_bin generate_keys
@@ -768,12 +798,17 @@ mac_release_sparkle_key_status() (
     cleaned_source=$source
   fi
   expected=$(mac_release_expected_public_key)
-  actual=$(mac_release_public_key_for_source "$source")
+  # generate_keys reports a missing key on stdout; keep the failure visible.
+  actual=$(mac_release_public_key_for_source "$source") || actual=
   printf 'app: %s\n' "$APP_NAME"
   printf 'embedded SUPublicEDKey: %s\n' "$expected"
   printf 'signing source: %s\n' "$(mac_release_key_source_label "$label_source")"
-  printf 'signing public key: %s\n' "$actual"
-  if [[ "$actual" == "$expected" ]]; then
+  printf 'signing public key: %s\n' "${actual:-unavailable}"
+  if [[ -z "$actual" ]]; then
+    printf 'status: missing\n' >&2
+    echo "No usable Sparkle signing key. Set SPARKLE_PRIVATE_KEY_FILE, MAC_RELEASE_SPARKLE_OP_REF, or MAC_RELEASE_SIGNING_KEY_FILE." >&2
+    return 1
+  elif [[ "$actual" == "$expected" ]]; then
     printf 'status: match\n'
   else
     printf 'status: mismatch\n' >&2
@@ -815,7 +850,10 @@ mac_release_key_args_and_validate() {
     mac_release_sparkle_account_args "$out_var"
   fi
   expected=$(mac_release_expected_public_key)
-  actual=$(mac_release_public_key_for_source "$source")
+  if ! actual=$(mac_release_public_key_for_source "$source"); then
+    mac_release_cleanup_temp_sparkle_key
+    mac_release_die "No usable Sparkle signing key from $(mac_release_key_source_label "$source"). Set SPARKLE_PRIVATE_KEY_FILE, MAC_RELEASE_SPARKLE_OP_REF, or MAC_RELEASE_SIGNING_KEY_FILE, then run mac-release sparkle-key-status."
+  fi
   [[ "$actual" == "$expected" ]] || mac_release_die "Sparkle signing key does not match ${APP_NAME} SUPublicEDKey. Run mac-release sparkle-key-status."
   if [[ "$source" == keychain ]]; then
     probe_sparkle_key ""
@@ -1038,22 +1076,16 @@ mac_release_download_enclosure() {
 }
 
 verify_enclosure() {
-  local url=$1 sig=$2 key_file=$3 expected_len=$4
-  require_bin curl sign_update
-  local tmp account_args=()
+  local url=$1 sig=$2 public_key=$3 expected_len=$4
+  require_bin curl
+  local tmp
   tmp=$(mktemp /tmp/sparkle-enclosure.XXXX)
   trap 'rm -f "${tmp:-}"' RETURN
   mac_release_download_enclosure "$url" "$tmp"
   local len
   len=$(stat -f%z "$tmp")
   [[ "$len" == "$expected_len" ]] || mac_release_die "Length mismatch for $url (expected $expected_len, got $len)"
-  if [[ -n "$key_file" ]]; then
-    sign_update --verify "$tmp" "$sig" --ed-key-file "$key_file"
-  else
-    mac_release_sparkle_account_args account_args
-    # ${arr[@]+...} keeps empty arrays safe under set -u on macOS bash 3.2
-    sign_update ${account_args[@]+"${account_args[@]}"} --verify "$tmp" "$sig"
-  fi
+  mac_release_verify_ed_signature "$public_key" "$sig" "$tmp"
 }
 
 verify_distribution_policy() {
@@ -1086,15 +1118,16 @@ verify_codesign_from_enclosure() {
 }
 
 verify_appcast_entry() {
-  local appcast=${1:?"appcast path"} version=${2:?"version"} key_file=${3:-}
-  local tmp_meta url sig length
+  local appcast=${1:?"appcast path"} version=${2:?"version"}
+  local tmp_meta url sig length public_key
+  public_key=$(mac_release_expected_public_key)
   tmp_meta=$(mktemp)
   trap 'rm -f "${tmp_meta:-}"' RETURN
   mac_release_appcast_meta "$appcast" "$version" "$tmp_meta"
   url=$(sed -n '1p' "$tmp_meta")
   sig=$(sed -n '2p' "$tmp_meta")
   length=$(sed -n '3p' "$tmp_meta")
-  verify_enclosure "$url" "$sig" "$key_file" "$length"
+  verify_enclosure "$url" "$sig" "$public_key" "$length"
   echo "Appcast entry $version verified (signature & length)."
   verify_codesign_from_enclosure "$url"
 }
@@ -1248,11 +1281,7 @@ mac_release_verify_appcast() {
   mac_release_load
   local version=${1:-$MARKETING_VERSION}
   [[ -f "$APPCAST" ]] || mac_release_die "appcast not found: $APPCAST"
-  KEY_ARGS=()
-  local key_file=""
-  trap '[[ -n "${key_file:-}" ]] && rm -f "$key_file"' EXIT
-  mac_release_key_args_and_validate KEY_ARGS key_file
-  verify_appcast_entry "$APPCAST" "$version" "$key_file"
+  verify_appcast_entry "$APPCAST" "$version"
 }
 
 mac_release_status() {
@@ -1771,6 +1800,7 @@ mac_release_codesign_run() {
 
 mac_release_release() (
   mac_release_load
+  [[ -n "${MAC_RELEASE_PACKAGE_CMD:-}" ]] || mac_release_die "release requires MAC_RELEASE_PACKAGE_CMD in the release manifest"
   require_bin git gh
   local release_branch current_branch
   release_branch=${MAC_RELEASE_RELEASE_BRANCH:-main}
@@ -1847,11 +1877,7 @@ mac_release_release() (
   # A failed response can still mean GitHub published and started release workflows.
   publication_attempted=1
   gh api --method PATCH "repos/$MAC_RELEASE_REPO/releases/$release_id" -F draft=false --silent
-  if [[ -n "$key_file" ]]; then
-    SPARKLE_PRIVATE_KEY_FILE="$key_file" "$0" verify-appcast "$MARKETING_VERSION"
-  else
-    env -u SPARKLE_PRIVATE_KEY_FILE "$0" verify-appcast "$MARKETING_VERSION"
-  fi
+  env -u SPARKLE_PRIVATE_KEY_FILE "$0" verify-appcast "$MARKETING_VERSION"
   wait_for_assets "$TAG" "$ARTIFACT_PREFIX"
   git push origin "HEAD:$release_branch"
   if [[ "${MAC_RELEASE_RUN_SPARKLE_UPDATE_TEST:-${RUN_SPARKLE_UPDATE_TEST:-0}}" == "1" && -x "$ROOT/Scripts/test_live_update.sh" ]]; then

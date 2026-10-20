@@ -82,6 +82,7 @@ mac_release_load() {
   [[ "$SCENARIO" != app-only ]] || DSYM_ZIP=
   FEED_URL=https://example.invalid/appcast.xml TAG=v1.2.3 ARTIFACT_PREFIX=Fixture-
   MAC_RELEASE_PACKAGE_CMD=fixture-package
+  [[ "$SCENARIO" != missing-package ]] || unset MAC_RELEASE_PACKAGE_CMD
 }
 mac_release_load_1password_env() { :; }
 mac_release_key_args_and_validate() {
@@ -109,6 +110,7 @@ case "$1" in
     printf 'new appcast\n' >appcast.xml
     ;;
   verify-appcast)
+    [[ -z "${SPARKLE_PRIVATE_KEY_FILE+x}" ]]
     [[ "$(<"$FIXTURE/release-state")" == published ]]
     record verify
     if [[ "$SCENARIO" == verify-failure ]]; then
@@ -121,6 +123,14 @@ case "$1" in
 esac
 RUNNER
 chmod +x "$test_root/runner"
+
+fixture="$test_root/missing-package"
+mkdir -p "$fixture/repo"
+result=0
+LIBRARY="$library" FIXTURE="$fixture" SCENARIO=missing-package RELEASE_BRANCH=main \
+  "$test_root/runner" release >"$fixture/output" 2>&1 || result=$?
+[[ "$result" != 0 && ! -e "$fixture/events" ]]
+grep -Fq 'release requires MAC_RELEASE_PACKAGE_CMD in the release manifest' "$fixture/output"
 
 for scenario in success app-only upload-failure publish-response-failure verify-failure assets-failure push-failure; do
   fixture="$test_root/$scenario"

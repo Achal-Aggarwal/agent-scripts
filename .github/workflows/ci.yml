@@ -70,6 +70,7 @@ jobs:
           /bin/bash skills/release-mac-app/scripts/mac-release-assets.test.sh
           /bin/bash skills/release-mac-app/scripts/mac-release-publication.test.sh
           /bin/bash skills/release-mac-app/scripts/mac-release-download.test.sh
+          /bin/bash skills/release-mac-app/scripts/mac-release-verify.test.sh
 
       - name: Test maintainer orchestrator worker boundary
         run: scripts/test-maintainer-orchestrator-policy

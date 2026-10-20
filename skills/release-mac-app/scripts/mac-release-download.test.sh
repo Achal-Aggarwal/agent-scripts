@@ -43,12 +43,12 @@ stat() {
   [[ "$1" == -f%z ]]
   wc -c <"$2" | tr -d ' '
 }
-sign_update() {
-  [[ "$1" == --verify && "$(<"$2")" == abcdef && "$3" == fixture-signature ]]
+mac_release_verify_ed_signature() {
+  [[ "$1" == fixture-public-key && "$2" == fixture-signature && "$(<"$3")" == abcdef ]]
   printf 'signature checked\n' >"$FIXTURE/signature"
   [[ "$SCENARIO" != bad-signature ]] || return 91
 }
-verify_enclosure https://example.invalid/Fixture.zip fixture-signature '' "${EXPECTED_LENGTH:-6}"
+verify_enclosure https://example.invalid/Fixture.zip fixture-signature fixture-public-key "${EXPECTED_LENGTH:-6}"
 RUNNER
 chmod +x "$test_root/runner"
 

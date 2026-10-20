@@ -34,6 +34,8 @@ Use for BlackBar, RepoBar, CodexBar, Trimmy, and similar Sparkle-updated macOS a
 /Users/steipete/Projects/agent-scripts/skills/release-mac-app/scripts/mac-release package-run -- <command> [args...]
 ```
 
+`verify-appcast` uses only `SUPublicEDKey`; it needs no private key, Keychain, or 1Password access.
+
 ## Manifest
 
 Each repo owns `.mac-release.env`. It must contain no secrets.
@@ -49,7 +51,8 @@ Required:
 - `MAC_RELEASE_DOWNLOAD_URL_PREFIX`
 - `MAC_RELEASE_APP_ZIP`
 - either `MAC_RELEASE_INFO_PLIST` or `MAC_RELEASE_SUPUBLIC_ED_KEY`
-- `MAC_RELEASE_PACKAGE_CMD`
+
+`MAC_RELEASE_PACKAGE_CMD` is required only for `release`; status, notes, changelog-html, verify-appcast, and check-assets do not need it.
 
 Common optional:
 
@@ -100,7 +103,7 @@ Common optional:
 ## Done
 
 - appcast entry has URL, length, Sparkle signature.
-- downloaded enclosure verifies with Sparkle.
+- downloaded enclosure's EdDSA signature verifies against `SUPublicEDKey` (public key only).
 - extracted app passes `codesign`, `spctl`, and `stapler validate`.
 - GitHub release has app zip, dSYM zip when configured, plus app-specific extra assets.
 - release notes match the changelog section.

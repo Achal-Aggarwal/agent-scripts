@@ -6,6 +6,7 @@ summary: Timeline of guardrail helper changes mirrored from Sweetistics and rela
 
 ## Unreleased
 
+- release-mac-app: verify-appcast checks Sparkle signatures against SUPublicEDKey without a private key, read-only commands no longer require MAC_RELEASE_PACKAGE_CMD, and a missing Sparkle signing key now fails with a clear message instead of exiting silently.
 - Fail browser content/search navigation errors without extracting stale pages; retain loaded documents after network-idle timeouts. Thanks @SebTardif! (#49)
 - Verify restricted npm package versions with the temporary authenticated npmrc before and after publishing. Thanks @SebTardif! (#50)
 - Report missing relay gateway token files without crashing local doctor. Thanks @SebTardif! (#51)
